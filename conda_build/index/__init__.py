@@ -1016,6 +1016,8 @@ class ChannelIndex:
         if verbose:
             log.info("Building repodata for %s" % subdir_path)
 
+        # XXX eliminate all listdir
+
         # gather conda package filenames in subdir
         # we'll process these first, because reading their metadata is much faster
         fns_in_subdir = {
@@ -1181,6 +1183,8 @@ class ChannelIndex:
         return new_repodata
 
     def _ensure_dirs(self, subdir):
+        # XXX _ensure_cache
+
         # Create all cache directories in the subdir.
         ensure = lambda path: isdir(path) or os.makedirs(path)
         cache_path = join(self.channel_root, subdir, ".cache")
