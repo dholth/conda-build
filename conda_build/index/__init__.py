@@ -51,11 +51,11 @@ from conda.core.subdir_data import SubdirData
 from conda.models.channel import Channel
 
 from conda_build import conda_interface, utils
-from .conda_interface import MatchSpec, VersionOrder, human_bytes, context
-from .conda_interface import CondaError, CondaHTTPError, get_index, url_path
-from .conda_interface import TemporaryDirectory
-from .conda_interface import Resolve
-from .utils import (
+from ..conda_interface import MatchSpec, VersionOrder, human_bytes, context
+from ..conda_interface import CondaError, CondaHTTPError, get_index, url_path
+from ..conda_interface import TemporaryDirectory
+from ..conda_interface import Resolve
+from ..utils import (
     CONDA_PACKAGE_EXTENSION_V1,
     CONDA_PACKAGE_EXTENSION_V2,
     CONDA_PACKAGE_EXTENSIONS,
@@ -64,6 +64,8 @@ from .utils import (
     get_logger,
     glob,
 )
+
+from . import sqlitecache
 
 log = get_logger(__name__)
 
@@ -1010,20 +1012,20 @@ class ChannelIndex:
 
     def index_subdir(self, subdir, index_file=None, verbose=False, progress=False):
         subdir_path = join(self.channel_root, subdir)
-        self._ensure_dirs(subdir)
+
+        cache = sqlitecache.CondaIndexCache(subdir_path, subdir)
+        # XXX cache.convert()
+
         repodata_json_path = join(subdir_path, REPODATA_FROM_PKGS_JSON_FN)
 
         if verbose:
             log.info("Building repodata for %s" % subdir_path)
 
-        # XXX eliminate all listdir
-
         # gather conda package filenames in subdir
         # we'll process these first, because reading their metadata is much faster
+        # XXX eliminate all listdir. that and stat calls are significant.
         fns_in_subdir = {
-            fn
-            for fn in os.listdir(subdir_path)
-            if fn.endswith(".conda") or fn.endswith(".tar.bz2")
+            fn for fn in os.listdir(subdir_path) if fn.endswith((".conda", ".tar.bz2"))
         }
 
         # load current/old repodata
@@ -1045,12 +1047,7 @@ class ChannelIndex:
         #       'md5': 'abd123',
         #     },
         #   }
-        stat_cache_path = join(subdir_path, ".cache", "stat.json")
-        try:
-            with open(stat_cache_path) as fh:
-                stat_cache = json.load(fh) or {}
-        except:
-            stat_cache = {}
+        stat_cache = cache.stat_cache()
 
         stat_cache_original = stat_cache.copy()
 
