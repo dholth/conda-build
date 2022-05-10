@@ -6,7 +6,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
     level=logging.INFO,
 )
-logging.getLogger()
 import conda_build.cli.main_index
 
 conda_build.cli.main_index.main()
