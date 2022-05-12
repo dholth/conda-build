@@ -100,6 +100,7 @@ def create(conn):
         )
 
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_stat ON stat (path, stage)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stat_stage ON stat (stage, path)")
 
 
 def extract_cache(path):

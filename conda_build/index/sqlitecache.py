@@ -120,8 +120,6 @@ class CondaIndexCache:
     def db(self):
         """
         Connection to our sqlite3 database.
-
-        Ability to pickle if db has not been accessed?
         """
         conn = connect(self.db_filename)
         convert_cache.create(conn)
