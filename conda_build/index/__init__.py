@@ -293,7 +293,7 @@ def update_index(
     subdirs=None,
     warn=True,
     current_index_versions=None,
-    debug=False
+    debug=False,
 ):
     """
     If dir_path contains a directory named 'noarch', the path tree therein is treated
@@ -333,8 +333,7 @@ def update_index(
         patch_generator=patch_generator,
         verbose=verbose,
         progress=progress,
-        hotfix_source_repo=hotfix_source_repo,
-        current_index_versions=current_index_versions
+        current_index_versions=current_index_versions,
     )
 
 
@@ -873,22 +872,24 @@ class ChannelIndex:
             if (debug or sys.version_info.major == 2 or threads == 1)
             else ProcessPoolExecutor(threads)
         )
+        self.debug = debug
         self.deep_integrity_check = deep_integrity_check
 
     def index(
         self,
         patch_generator,
-        hotfix_source_repo=None,
         verbose=False,
         progress=False,
-        current_index_versions=None
+        current_index_versions=None,
     ):
         if verbose:
             level = logging.DEBUG
         else:
             level = logging.ERROR
 
-        with utils.LoggingContext(level, loggers=[__name__]):
+        logging_context = utils.LoggingContext(level, loggers=[__name__])
+
+        with logging_context:
             if not self._subdirs:
                 detected_subdirs = {
                     subdir.name
@@ -923,15 +924,15 @@ class ChannelIndex:
                         ) as t2:
                             t2.set_description("Gathering repodata")
                             t2.update()
+                            log.debug("gather repodata")
                             _ensure_valid_channel(self.channel_root, subdir)
                             repodata_from_packages = self.index_subdir(
-                                subdir,
-                                verbose=verbose,
-                                progress=progress
+                                subdir, verbose=verbose, progress=progress
                             )
 
                             t2.set_description("Writing pre-patch repodata")
                             t2.update()
+                            log.debug("write repodata")
                             self._write_repodata(
                                 subdir,
                                 repodata_from_packages,
@@ -941,7 +942,8 @@ class ChannelIndex:
                             # Step 3. Apply patch instructions.
                             t2.set_description("Applying patch instructions")
                             t2.update()
-                            patched_repodata, patch_instructions = self._patch_repodata(
+                            log.debug("apply patch instructions")
+                            patched_repodata, _ = self._patch_repodata(
                                 subdir, repodata_from_packages, patch_generator
                             )
 
@@ -951,16 +953,19 @@ class ChannelIndex:
 
                             t2.set_description("Writing patched repodata")
                             t2.update()
+                            log.debug("write patched repodata")
                             self._write_repodata(
                                 subdir, patched_repodata, REPODATA_JSON_FN
                             )
                             t2.set_description("Building current_repodata subset")
                             t2.update()
+                            log.debug("build current_repodata")
                             current_repodata = _build_current_repodata(
                                 subdir, patched_repodata, pins=current_index_versions
                             )
                             t2.set_description("Writing current_repodata subset")
                             t2.update()
+                            log.debug("write current_repodata")
                             self._write_repodata(
                                 subdir,
                                 current_repodata,
@@ -969,22 +974,25 @@ class ChannelIndex:
 
                             t2.set_description("Writing subdir index HTML")
                             t2.update()
+                            log.debug("write subdir index.html")
                             self._write_subdir_index_html(subdir, patched_repodata)
 
                             t2.set_description("Updating channeldata")
                             t2.update()
+                            log.debug("update channeldata")
                             self._update_channeldata(
                                 channel_data, patched_repodata, subdir
                             )
 
+                            log.debug("finish %s", subdir)
+
                 # Step 7. Create and write channeldata.
                 self._write_channeldata_index_html(channel_data)
+                log.debug("write channeldata")
                 self._write_channeldata(channel_data)
 
     def index_subdir(self, subdir, verbose=False, progress=False):
-        return self.index_subdir_sql(
-            subdir, verbose=verbose, progress=progress
-        )
+        return self.index_subdir_sql(subdir, verbose=verbose, progress=progress)
 
     # def index_subdir_nosql(
     #     self, subdir, index_file=None, verbose=False, progress=False
@@ -1180,7 +1188,7 @@ class ChannelIndex:
         # gather conda package filenames in subdir
         # we'll process these first, because reading their metadata is much faster
         # XXX eliminate all listdir. that and stat calls are significant.
-        log.info("listdir")
+        log.debug("listdir")
         fns_in_subdir = {
             fn for fn in os.listdir(subdir_path) if fn.endswith((".conda", ".tar.bz2"))
         }
@@ -1212,7 +1220,7 @@ class ChannelIndex:
                     "size": stat.st_size,
                 }
 
-        log.info("save fs state")
+        log.debug("save fs state")
         with cache.db:
             # XXX and path like channel/% if multiple channels share cache
             cache.db.execute("DELETE FROM stat WHERE stage='fs' ")
@@ -1224,10 +1232,13 @@ class ChannelIndex:
                 listdir_stat(),
             )
 
-        log.info("load repodata into stat cache")
+        log.debug("load repodata into stat cache")
         # put repodata into stat table. no mtime.
         with cache.db:
-            cache.db.execute("DELETE FROM stat WHERE stage='repodata' AND path like :path_like", {'path_like':path_like})
+            cache.db.execute(
+                "DELETE FROM stat WHERE stage='repodata' AND path like :path_like",
+                {"path_like": path_like},
+            )
             cache.db.executemany(
                 """
             INSERT INTO stat (stage, path)
@@ -1243,7 +1254,7 @@ class ChannelIndex:
 
         # in repodata but not on filesystem
         # remove_set = old_repodata_fns - fns_in_subdir
-        print("calculate remove set")
+        log.debug("calculate remove set")
         remove_set = {
             fn.rpartition("/")[-1]
             for fn in cache.db.execute(
@@ -1470,6 +1481,7 @@ class ChannelIndex:
             repodata_json_path, new_repodata_binary, write_newline_end=True
         )
         if write_result:
+            # XXX do this quickly or not at all
             repodata_bz2_path = repodata_json_path + ".bz2"
             bz2_content = bz2.compress(new_repodata_binary)
             _maybe_write(repodata_bz2_path, bz2_content, content_is_binary=True)
