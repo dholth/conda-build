@@ -251,6 +251,8 @@ class CondaIndexCache:
     def extract_to_cache_unconditional(self, fn, abs_fn, size):
         """
         Add or replace fn into cache, disregarding whether it is already cached.
+
+        Return index.json as dict, with added size, checksums.
         """
         database_path = self.database_path(fn)
 
@@ -369,7 +371,7 @@ class CondaIndexCache:
             mtime = mtime or os.stat(join(subdir_path, fn)).st_mtime
         except FileNotFoundError:
             # XXX don't call if it won't be found
-            print("FILE NOT FOUND in load_all_from_cache")
+            log.warn("%s not found in load_all_from_cache", fn)
             return {}
 
         # In contrast to self._load_index_from_cache(), this method reads up pretty much
