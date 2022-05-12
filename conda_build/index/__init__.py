@@ -1012,7 +1012,7 @@ class ChannelIndex:
                 self._write_channeldata(channel_data)
 
     def index_subdir(self, subdir, index_file=None, verbose=False, progress=False):
-        return self.index_subdir_nosql(
+        return self.index_subdir_sql(
             subdir, index_file=index_file, verbose=verbose, progress=progress
         )
 
