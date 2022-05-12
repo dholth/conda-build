@@ -37,7 +37,9 @@ from ..utils import (
 from conda_package_handling.utils import checksums
 
 
-log = logging.getLogger(__name__) # get_logger(__name__) # use stdlib logging for now, to get messages
+log = logging.getLogger(
+    __name__
+)  # get_logger(__name__) # use stdlib logging for now, to get messages
 
 
 INDEX_JSON_PATH = "info/index.json"
@@ -227,140 +229,138 @@ class CondaIndexCache:
                 index_json = json.loads(cached_row[0])
 
             else:
+                index_json = self.extract_to_cache_unconditional(fn, abs_fn, size)
 
-                wanted = set(PATH_TO_TABLE) - COMPUTED
-
-                # when we see one of these, remove the rest from wanted
-                recipe_want_one = {
-                    "info/recipe/meta.yaml.rendered",
-                    "info/recipe/meta.yaml",  # by far the most common
-                    "info/meta.yaml",
-                }
-
-                have = {}
-                package_stream = iter(package_streaming.stream_conda_info(abs_fn))
-                for tar, member in package_stream:
-                    if member.name in wanted:
-                        wanted.remove(member.name)
-                        have[member.name] = tar.extractfile(member).read()
-
-                        # immediately parse index.json, decide whether we need icon
-                        if member.name == INDEX_JSON_PATH:  # early exit when no icon
-                            index_json = json.loads(have[member.name])
-                            if index_json.get("icon") is None:
-                                wanted = wanted - {ICON_PATH}
-
-                        if member.name in recipe_want_one:
-                            # convert yaml; don't look for any more recipe files
-                            have[member.name] = _cache_recipe(have[member.name])
-                            wanted = wanted - recipe_want_one
-
-                    if not wanted:  # we got what we wanted
-                        # XXX debug: how many files / bytes did we avoid reading
-                        package_stream.close()
-                        log.debug(f"{fn} early exit")
-
-                if wanted and wanted != {"info/run_exports.json"}:
-                    # very common for some metadata to be missing
-                    log.debug(f"{fn} missing {wanted} has {set(have.keys())}")
-
-                index_json = json.loads(have["info/index.json"])
-
-                # populate run_exports.json (all False's if there was no
-                # paths.json). paths.json should not be needed after this; don't
-                # cache large paths.json unless we want a "search for paths"
-                # feature unrelated to repodata.json
-                try:
-                    paths_str = have.pop(PATHS_PATH)
-                except KeyError:
-                    paths_str = ""
-                have["info/post_install.json"] = _cache_post_install_details(paths_str)
-
-                # XXX will not delete cached recipe, if missing
-                for have_path in have:
-                    table = PATH_TO_TABLE[have_path]
-                    if table in TABLE_NO_CACHE:
-                        continue  # not cached
-
-                    parameters = {"path": database_path, "data": have.get(have_path)}
-                    if have_path == ICON_PATH:
-                        query = """
-                            INSERT OR IGNORE into icon (path, icon_png)
-                            VALUES (:path, :data)
-                            """
-                    elif parameters["data"] is not None:
-                        query = f"""
-                            INSERT OR IGNORE INTO {table} (path, {table})
-                            VALUES (:path, json(:data))
-                            """
-                    else:
-                        query = f"""
-                            DELETE FROM {table} WHERE path = :path
-                            """
-                    try:
-                        self.db.execute(query, parameters)
-                    except sqlite3.OperationalError:  # e.g. malformed json. will rollback txn?
-                        log.exception("table=%s parameters=%s", table, parameters)
-                        # XXX delete from cache
-                        raise
-
-                # decide what fields to filter out, like has_prefix
-                filter_fields = {
-                    "arch",
-                    "has_prefix",
-                    "mtime",
-                    "platform",
-                    "ucs",
-                    "requires_features",
-                    "binstar",
-                    "target-triplet",
-                    "machine",
-                    "operatingsystem",
-                }
-                for field_name in filter_fields & set(index_json):
-                    del index_json[field_name]
-
-            # calculate extra stuff to add to index.json cache, size, md5, sha256
-            #    This is done always for all files, whether the cache is loaded or not,
-            #    because the cache may be from the other file type.  We don't store this
-            #    info in the cache to avoid confusion.
-
-            # conda_package_handling wastes a stat call to give us this information
-            # XXX store this info in the cache while avoiding confusion
-            # (existing index_json['sha256', 'md5'] may be good)
-            # XXX stop using md5
-            md5, sha256 = checksums(abs_fn, ("md5", "sha256"))
-
-            new_info = {"md5": md5, "sha256": sha256, "size": size}
-            for digest_type in "md5", "sha256":
-                if digest_type in index_json:
-                    assert (
-                        index_json[digest_type] == new_info[digest_type]
-                    ), "cached index json digest mismatch"
-
-            index_json.update(new_info)
-
-            # sqlite json() function removes whitespace
-            self.db.execute(
-                "INSERT OR REPLACE INTO index_json (path, index_json) VALUES (:path, json(:index_json))",
-                {"path": database_path, "index_json": json.dumps(index_json)},
-            )
             retval = fn, mtime, size, index_json
 
-        # stdlib zipfile: BadZipFile; tar: OSError: Invalid data stream
         except (
-            InvalidArchiveError,
+            InvalidArchiveError,  # libarchive
             KeyError,
             EOFError,
             JSONDecodeError,
-            BadZipFile,
-            OSError,
+            BadZipFile,  # stdlib zipfile
+            OSError,  # stdlib tarfile: OSError: Invalid data stream
         ):
             if not second_try:
-                # recursion
+                # recursion XXX measure whether this ever succeeds on the second
+                # try. could wait until next index run.
                 return self._extract_to_cache(channel_root, subdir, fn, second_try=True)
 
         return retval
+
+    def extract_to_cache_unconditional(self, fn, abs_fn, size):
+        """
+        Add or replace fn into cache, disregarding whether it is already cached.
+        """
+        database_path = self.database_path(fn)
+
+        wanted = set(PATH_TO_TABLE) - COMPUTED
+
+        # when we see one of these, remove the rest from wanted
+        recipe_want_one = {
+            "info/recipe/meta.yaml.rendered",
+            "info/recipe/meta.yaml",  # by far the most common
+            "info/meta.yaml",
+        }
+
+        have = {}
+        package_stream = iter(package_streaming.stream_conda_info(abs_fn))
+        for tar, member in package_stream:
+            if member.name in wanted:
+                wanted.remove(member.name)
+                have[member.name] = tar.extractfile(member).read()
+
+                # immediately parse index.json, decide whether we need icon
+                if member.name == INDEX_JSON_PATH:  # early exit when no icon
+                    index_json = json.loads(have[member.name])
+                    if index_json.get("icon") is None:
+                        wanted = wanted - {ICON_PATH}
+
+                if member.name in recipe_want_one:
+                    # convert yaml; don't look for any more recipe files
+                    have[member.name] = _cache_recipe(have[member.name])
+                    wanted = wanted - recipe_want_one
+
+            if not wanted:  # we got what we wanted
+                # XXX debug: how many files / bytes did we avoid reading
+                package_stream.close()
+                log.debug(f"{fn} early exit")
+
+        if wanted and wanted != {"info/run_exports.json"}:
+            # very common for some metadata to be missing
+            log.debug(f"{fn} missing {wanted} has {set(have.keys())}")
+
+        index_json = json.loads(have["info/index.json"])
+
+        # populate run_exports.json (all False's if there was no
+        # paths.json). paths.json should not be needed after this; don't
+        # cache large paths.json unless we want a "search for paths"
+        # feature unrelated to repodata.json
+        try:
+            paths_str = have.pop(PATHS_PATH)
+        except KeyError:
+            paths_str = ""
+        have["info/post_install.json"] = _cache_post_install_details(paths_str)
+
+        for have_path in have:
+            table = PATH_TO_TABLE[have_path]
+            if table in TABLE_NO_CACHE or table == "index_json":
+                continue  # not cached, or for index_json cached at end
+
+            parameters = {"path": database_path, "data": have.get(have_path)}
+            if have_path == ICON_PATH:
+                query = """
+                            INSERT OR REPLACE into icon (path, icon_png)
+                            VALUES (:path, :data)
+                            """
+            elif parameters["data"] is not None:
+                query = f"""
+                            INSERT OR REPLACE INTO {table} (path, {table})
+                            VALUES (:path, json(:data))
+                            """
+            else:
+                query = f"""
+                            DELETE FROM {table} WHERE path = :path
+                            """
+            try:
+                self.db.execute(query, parameters)
+            except sqlite3.OperationalError:  # e.g. malformed json.
+                log.exception("table=%s parameters=%s", table, parameters)
+                # XXX delete from cache
+                raise
+
+        # decide what fields to filter out, like has_prefix
+        filter_fields = {
+            "arch",
+            "has_prefix",
+            "mtime",
+            "platform",
+            "ucs",
+            "requires_features",
+            "binstar",
+            "target-triplet",
+            "machine",
+            "operatingsystem",
+        }
+        for field_name in filter_fields & set(index_json):
+            del index_json[field_name]
+
+        # calculate extra stuff to add to index.json cache, size, md5, sha256
+
+        # conda_package_handling wastes a stat call to give us this information
+        md5, sha256 = checksums(abs_fn, ("md5", "sha256"))
+
+        new_info = {"md5": md5, "sha256": sha256, "size": size}
+
+        index_json.update(new_info)
+
+        # sqlite json() function removes whitespace
+        self.db.execute(
+            "INSERT OR REPLACE INTO index_json (path, index_json) VALUES (:path, json(:index_json))",
+            {"path": database_path, "index_json": json.dumps(index_json)},
+        )
+
+        return index_json
 
     def load_all_from_cache(self, fn, mtime=None):
         subdir_path = self.subdir_path
