@@ -1323,7 +1323,7 @@ class ChannelIndex:
                 {"path_like": path_like},
             )
 
-            update_set = {fn.rpartition("/")[-1] for fn in update_set_query}
+            update_set = {row["path"].rpartition("/")[-1] for row in update_set_query}
 
             log.debug("calculate unchanged set")
             # unchanged_set: packages in old repodata whose information can carry straight
