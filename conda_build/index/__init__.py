@@ -1222,8 +1222,10 @@ class ChannelIndex:
 
         log.debug("save fs state")
         with cache.db:
-            # XXX and path like channel/% if multiple channels share cache
-            cache.db.execute("DELETE FROM stat WHERE stage='fs' ")
+            cache.db.execute(
+                "DELETE FROM stat WHERE stage='fs' AND path like :path_like",
+                {"path_like": path_like},
+            )
             cache.db.executemany(
                 """
             INSERT INTO STAT (stage, path, mtime, size)
@@ -1425,39 +1427,6 @@ class ChannelIndex:
             if stat_cache != stat_cache_original:
                 cache.save_stat_cache(stat_cache)
         return new_repodata
-
-    def _calculate_update_set(
-        self,
-        subdir,
-        fns_in_subdir,
-        old_repodata_fns,
-        stat_cache,
-        verbose=False,
-        progress=True,
-    ):
-        # Determine the packages that already exist in repodata, but need to be updated.
-        # We're not using md5 here because it takes too long.
-        candidate_fns = fns_in_subdir & old_repodata_fns
-        subdir_path = join(self.channel_root, subdir)
-
-        update_set = set()
-        for fn in tqdm(
-            iter(candidate_fns),
-            desc="Finding updated files",
-            disable=not (verbose or progress),
-            leave=False,
-        ):
-            stat_key = fn  # XXX emulate database unique keys or rewrite _update functions in SQL
-            if stat_key not in stat_cache:
-                update_set.add(fn)
-            else:
-                stat_result = os.stat(join(subdir_path, fn))
-                if (
-                    int(stat_result.st_mtime) != int(stat_cache[stat_key]["mtime"])
-                    or stat_result.st_size != stat_cache[stat_key]["size"]
-                ):
-                    update_set.add(fn)
-        return update_set
 
     @staticmethod
     def _load_index_from_cache(channel_root, subdir, fn, stat_cache):
