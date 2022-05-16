@@ -1084,8 +1084,8 @@ class ChannelIndex:
         # remove_set = old_repodata_fns - fns_in_subdir
         log.debug("calculate remove set")
         remove_set = {
-            fn.rpartition("/")[-1]
-            for fn in cache.db.execute(
+            row["path"].rpartition("/")[-1]
+            for row in cache.db.execute(
                 """SELECT path FROM stat WHERE path LIKE :path_like AND stage = 'repodata'
             AND path NOT IN (SELECT path FROM stat WHERE stage = 'fs')""",
                 {"path_like": path_like},
@@ -1120,33 +1120,16 @@ class ChannelIndex:
             log.debug("calculate update set")
             update_set_query = cache.db.execute(
                 """
-                WITH cached AS (
-                SELECT
-                    path,
-                    mtime
-                FROM
-                    stat
-                WHERE
-                    stage = 'indexed'
-                ),
-                fs AS (
-                SELECT
-                    path,
-                    mtime
-                FROM
-                    stat
-                WHERE
-                    stage = 'fs'
-                )
-                SELECT
-                    fs.path,
-                    fs.mtime
-                    from
-                    fs
-                LEFT JOIN cached USING (path)
-                WHERE
-                fs.path LIKE :path_like
-                AND (floor(fs.mtime) != floor(cached.mtime) OR cached.path IS NULL)
+                WITH
+                cached AS
+                    ( SELECT path, mtime FROM stat WHERE stage = 'indexed' ),
+                fs AS
+                    ( SELECT path, mtime FROM stat WHERE stage = 'fs' )
+
+                SELECT fs.path, fs.mtime from fs LEFT JOIN cached USING (path)
+
+                WHERE fs.path LIKE :path_like AND
+                    (floor(fs.mtime) != floor(cached.mtime) OR cached.path IS NULL)
                 """,
                 {"path_like": path_like},
             )
