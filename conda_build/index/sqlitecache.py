@@ -37,9 +37,7 @@ from ..utils import (
 from conda_package_handling.utils import checksums
 
 
-log = logging.getLogger(
-    __name__
-)  # get_logger(__name__) # use stdlib logging for now, to get messages
+log = get_logger(__name__)
 
 
 INDEX_JSON_PATH = "info/index.json"
@@ -319,9 +317,7 @@ class CondaIndexCache:
                             VALUES (:path, json(:data))
                             """
             else:
-                query = f"""
-                            DELETE FROM {table} WHERE path = :path
-                            """
+                query = f"""DELETE FROM {table} WHERE path = :path"""
             try:
                 self.db.execute(query, parameters)
             except sqlite3.OperationalError:  # e.g. malformed json.
