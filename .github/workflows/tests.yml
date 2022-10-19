@@ -48,6 +48,17 @@ jobs:
     env:
       pytest-replay: --replay-record-dir=pytest-replay/ --replay-base-name=Linux-${{ matrix.conda-version }}-Py${{ matrix.python-version }}
 
+    # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    # Allow one concurrent deployment
+    concurrency:
+      group: "pages"
+      cancel-in-progress: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -95,7 +106,7 @@ jobs:
               -m "serial" tests \
               ${{ env.pytest-replay }} \
               --alluredir = "./allure-results"
-      
+
       - name: Run Parallel tests
         if: matrix.test-type == 'parallel'
         run: |
@@ -136,10 +147,16 @@ jobs:
           allure_history: allure-history
           keep_reports: 20
 
-      - name: Deploy report to Github Pages
-        if: always()
-        uses: peaceiris/actions-gh-pages@v3
-        env:
-          PERSONAL_TOKEN: ${{ secrets.PROJECT_TOKEN }}
-          PUBLISH_BRANCH: gh-pages
-          PUBLISH_DIR: allure-history
+      # adapted from https://github.com/actions/starter-workflows/blob/main/pages/static.yml
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Pages
+        uses: actions/configure-pages@v2
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          # Upload entire repository
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
