@@ -128,13 +128,26 @@ jobs:
           name: Linux_replay-py-${{ matrix.python-version }}_${{ matrix.conda-version }}_${{ matrix.test-type }}
           path: pytest-replay/
 
-      - name: Get allure history
-        uses: actions/checkout@v2
-        if: always()
-        continue-on-error: true
+      # - name: Compress allure-results
+      #   run: tar -zcf allure-results.tar.gz allure-results
+
+      - name: Upload allure-results
+        uses: actions/upload-artifact@v2
         with:
-          ref: gh-pages
-          path: gh-pages
+          name: allure-${{ matrix.python-version }}_${{ matrix.conda-version }}_${{ matrix.test-type }}
+          path: allure-results
+
+  allure-report:
+    needs: [linux]
+    steps:
+      - name: Download test results
+        uses: actions/download-artifact@v3
+        with:
+          path: allure-results
+
+      - name: List test results
+        run: ls -R
+        working-directory: allure-results
 
       - name: Setup allure report
         uses: simple-elf/allure-report-action@master
@@ -150,13 +163,16 @@ jobs:
       # adapted from https://github.com/actions/starter-workflows/blob/main/pages/static.yml
       - name: Checkout
         uses: actions/checkout@v3
+
       - name: Setup Pages
         uses: actions/configure-pages@v2
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:
           # Upload entire repository
           path: '.'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v1
