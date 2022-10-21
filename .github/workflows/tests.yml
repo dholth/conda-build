@@ -139,6 +139,7 @@ jobs:
 
   allure-report:
     needs: [linux]
+    runs-on: ubuntu-latest
     steps:
       - name: Download test results
         uses: actions/download-artifact@v3
